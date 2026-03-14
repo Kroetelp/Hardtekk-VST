@@ -13,7 +13,7 @@ public:
     TekkKickAudioProcessor();
     ~TekkKickAudioProcessor() override;
 
-    void prepareToPlay (double sampleRate, [[maybe_unused]] int samplesPerBlock) override;
+    void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
 
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
@@ -46,10 +46,14 @@ private:
     bool isPlaying = false;
     float phase = 0.0f;           // Haupt-Kick Phase
     float subPhase = 0.0f;         // Sub-Layer Phase
-    float envAmpPos = 0.0f;       // Amplitude Envelope
-    float envPitchPos = 0.0f;      // Pitch Envelope
+    float envAmpPos = 0.0f;       // Amplitude Envelope (0.0 bis 1.0)
+    float envPitchPos = 0.0f;      // Pitch Envelope (0.0 bis 1.0)
     float sampleCount = 0.0f;       // Zähler für Click am Decay-Ende
     float noisePhase = 0.0f;        // Noise Phase
+
+    // Exponentielle Envelope-Koeffizienten
+    float pitchDecayCoeff = 0.0f;    // Exponentieller Pitch Decay
+    float ampDecayCoeff = 0.0f;      // Exponentieller Amplitude Decay
 
     // Cache für Parameter
     std::atomic<float>* driveParam = nullptr;
@@ -69,9 +73,43 @@ private:
     std::atomic<float>* filterResParam = nullptr;     // Filter Resonance
     std::atomic<float>* filterTypeParam = nullptr;     // Filter Type (0=LP, 1=HP, 2=BP)
 
-    // === FILTER STATUS ===
-    float z1L = 0.0f, z2L = 0.0f;  // Linker Filter Zustand
-    float z1R = 0.0f, z2R = 0.0f;  // Rechter Filter Zustand
+    // === PRE-DISTORTION EQ PARAMETER (NEU) ===
+    std::atomic<float>* preEqFreqParam = nullptr;   // Pre-EQ Frequenz (Hz)
+    std::atomic<float>* preEqGainParam = nullptr;   // Pre-EQ Boost (dB)
+    std::atomic<float>* preEqEnabledParam = nullptr; // Pre-EQ Enable
+
+    // === DSP CHAIN ELEMENTE ===
+
+    // Oversampling für Anti-Aliasing bei extremer Distortion
+    juce::dsp::Oversampling<float> oversampler { 2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false }; // Factor 2 = 4x Oversampling
+
+    // Pre-Distortion EQ (Peaking Filter) - erstellt den "Tok" Sound
+    juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> preDistortionEQ;
+
+    // Distortion Stage mit WaveShaper
+    struct WavefolderFunction
+    {
+        float foldAmount = 1.0f;
+        float operator()(float x) const
+        {
+            if (foldAmount <= 0.01f) return x;
+            return std::sin(x * juce::MathConstants<float>::twoPi * foldAmount) / foldAmount;
+        }
+    };
+    juce::dsp::WaveShaper<float, WavefolderFunction> wavefolder;
+
+    // Hard Clipper als einfache Funktion
+    struct HardClipper
+    {
+        float operator()(float x) const
+        {
+            return juce::jlimit(-1.0f, 1.0f, x);
+        }
+    };
+    juce::dsp::WaveShaper<float, HardClipper> hardClipper;
+
+    // Post-Filter mit StateVariableTPTFilter für bessere Stabilität (Stereo-Array)
+    std::array<juce::dsp::StateVariableTPTFilter<float>, 2> postFilters;
 
     // === ON/OFF SWITCHES ===
     std::atomic<float>* driveEnabledParam = nullptr;
