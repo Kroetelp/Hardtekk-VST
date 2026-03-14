@@ -1,0 +1,19 @@
+# Build-Ordner
+build/
+
+# JUCE Framework (extern)
+JUCE 8.0.1.2/
+
+# IDE Dateien
+.vs/
+*.user
+*.suo
+*.userosscache
+
+# OS Dateien
+.DS_Store
+Thumbs.db
+
+# Backup Dateien
+*~
+*.bak

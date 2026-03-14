@@ -1,0 +1,378 @@
+// ==============================================================================
+// DATEI 2: PluginProcessor.cpp
+// ==============================================================================
+#include "PluginProcessor.h"
+#include "PluginEditor.h"
+
+TekkKickAudioProcessor::TekkKickAudioProcessor()
+#ifndef JucePlugin_PreferredChannelConfigurations
+     : AudioProcessor (BusesProperties()
+                     .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                       ), apvts(*this, nullptr, "PARAMETERS", createParameters())
+#endif
+{
+    // Verknüpfe die internen Variablen mit den Reglern
+    driveParam = apvts.getRawParameterValue("DRIVE");
+    punchParam = apvts.getRawParameterValue("PUNCH");
+    lengthParam = apvts.getRawParameterValue("LENGTH");
+    baseFreqParam = apvts.getRawParameterValue("BASE_FREQ");
+    clickParam = apvts.getRawParameterValue("CLICK");
+    clickDecayParam = apvts.getRawParameterValue("CLICK_DECAY");
+    swirlParam = apvts.getRawParameterValue("SWIRL");
+    foldParam = apvts.getRawParameterValue("FOLD");
+    subParam = apvts.getRawParameterValue("SUB");
+    noiseParam = apvts.getRawParameterValue("NOISE");
+    spreadParam = apvts.getRawParameterValue("SPREAD");
+    filterCutoffParam = apvts.getRawParameterValue("FILTER_CUTOFF");
+    filterResParam = apvts.getRawParameterValue("FILTER_RES");
+    filterTypeParam = apvts.getRawParameterValue("FILTER_TYPE");
+
+    // On/Off Switches verknüpfen
+    driveEnabledParam = apvts.getRawParameterValue("DRIVE_ENABLED");
+    punchEnabledParam = apvts.getRawParameterValue("PUNCH_ENABLED");
+    lengthEnabledParam = apvts.getRawParameterValue("LENGTH_ENABLED");
+    baseFreqEnabledParam = apvts.getRawParameterValue("BASE_FREQ_ENABLED");
+    clickEnabledParam = apvts.getRawParameterValue("CLICK_ENABLED");
+    clickDecayEnabledParam = apvts.getRawParameterValue("CLICK_DECAY_ENABLED");
+    swirlEnabledParam = apvts.getRawParameterValue("SWIRL_ENABLED");
+    spreadEnabledParam = apvts.getRawParameterValue("SPREAD_ENABLED");
+    foldEnabledParam = apvts.getRawParameterValue("FOLD_ENABLED");
+    subEnabledParam = apvts.getRawParameterValue("SUB_ENABLED");
+    noiseEnabledParam = apvts.getRawParameterValue("NOISE_ENABLED");
+    filterEnabledParam = apvts.getRawParameterValue("FILTER_ENABLED");
+}
+
+TekkKickAudioProcessor::~TekkKickAudioProcessor() {}
+
+juce::AudioProcessorValueTreeState::ParameterLayout TekkKickAudioProcessor::createParameters()
+{
+    std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
+
+    // === HAUPT-PARAMETER ===
+    // Drive: 1.0 bis 100.0 (erhöht für mehr Distortion)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("DRIVE", "Distortion Drive", 1.0f, 100.0f, 25.0f));
+
+    // Punch: Pitch Decay (0.0 bis 1.0 -> 0.90 bis 0.9999)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("PUNCH", "Punch", 0.0f, 1.0f, 0.5f));
+
+    // Length: Amp Decay (0.0 bis 1.0 -> 0.990 bis 0.99999)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("LENGTH", "Length", 0.0f, 1.0f, 0.5f));
+
+    // Base Freq: 30.0 bis 100.0 Hz
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("BASE_FREQ", "Sub Freq (Hz)", 30.0f, 100.0f, 50.0f));
+
+    // === CLICK PARAMETER ===
+    // Click am Attack: 0.0 bis 1.0
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("CLICK", "Click Attack", 0.0f, 1.0f, 0.5f));
+
+    // Click am Decay-Ende: 0.0 bis 1.0
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("CLICK_DECAY", "Click Decay", 0.0f, 1.0f, 0.3f));
+
+    // === STEREO & TEXTURE ===
+    // Binaural Swirl: 0.0 bis 1.0
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("SWIRL", "Binaural Swirl", 0.0f, 1.0f, 0.4f));
+
+    // Stereo-Spread: 0.0 bis 1.0
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("SPREAD", "Stereo Spread", 0.0f, 1.0f, 0.3f));
+
+    // === DISTORTION ===
+    // Wavefolding: 0.0 bis 10.0
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("FOLD", "Wavefold", 0.0f, 10.0f, 3.0f));
+
+    // === LAYER ===
+    // Sub-Layer Mix: 0.0 bis 1.0
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("SUB", "Sub Layer", 0.0f, 1.0f, 0.5f));
+
+    // Noise-Layer: 0.0 bis 1.0
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("NOISE", "Noise Layer", 0.0f, 1.0f, 0.3f));
+
+    // === FILTER ===
+    // Filter Cutoff: 20.0 bis 20000.0 Hz
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("FILTER_CUTOFF", "Filter Cutoff (Hz)", 20.0f, 20000.0f, 20000.0f));
+
+    // Filter Resonance: 0.0 bis 10.0
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("FILTER_RES", "Filter Resonance", 0.0f, 10.0f, 0.0f));
+
+    // Filter Type: 0=Lowpass, 1=Highpass, 2=Bandpass
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("FILTER_TYPE", "Filter Type",
+        juce::StringArray("Lowpass", "Highpass", "Bandpass"), 0));
+
+    // === ON/OFF SWITCHES ===
+    params.push_back(std::make_unique<juce::AudioParameterBool>("DRIVE_ENABLED", "Drive Enabled", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("PUNCH_ENABLED", "Punch Enabled", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("LENGTH_ENABLED", "Length Enabled", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("BASE_FREQ_ENABLED", "Base Freq Enabled", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("CLICK_ENABLED", "Click Enabled", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("CLICK_DECAY_ENABLED", "Click Decay Enabled", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("SWIRL_ENABLED", "Swirl Enabled", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("SPREAD_ENABLED", "Spread Enabled", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("FOLD_ENABLED", "Fold Enabled", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("SUB_ENABLED", "Sub Enabled", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("NOISE_ENABLED", "Noise Enabled", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("FILTER_ENABLED", "Filter Enabled", true));
+
+    return { params.begin(), params.end() };
+}
+
+void TekkKickAudioProcessor::prepareToPlay (double sampleRate, [[maybe_unused]] int samplesPerBlock)
+{
+    currentSampleRate = sampleRate;
+    (void)samplesPerBlock;
+}
+
+void TekkKickAudioProcessor::releaseResources() {}
+
+bool TekkKickAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+{
+    if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
+     && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
+        return false;
+    return true;
+}
+
+void TekkKickAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+{
+    juce::ScopedNoDenormals noDenormals;
+    buffer.clear(); // Wichtig: Alten Buffer leeren
+
+    // 1. MIDI Auswerten: Wenn eine Note gespielt wird, starte die Envelopes neu
+    for (const auto metadata : midiMessages)
+    {
+        auto message = metadata.getMessage();
+        if (message.isNoteOn())
+        {
+            isPlaying = true;
+            phase = 0.0f;
+            subPhase = 0.0f;
+            envAmpPos = 1.0f;
+            envPitchPos = 1.0f; // Pitch Envelope startet ganz oben
+            sampleCount = 0.0f;
+            noisePhase = 0.0f;
+        }
+    }
+
+    // Aktuelle Parameterwerte abrufen
+    float drive = driveParam->load();
+    float punchValue = punchParam->load();
+    float lengthValue = lengthParam->load();
+    float baseFreq = baseFreqParam->load();
+    float click = clickParam->load();
+    float clickDecay = clickDecayParam->load();
+    float swirl = swirlParam->load();
+    float fold = foldParam->load();
+    float sub = subParam->load();
+    float noise = noiseParam->load();
+    float spread = spreadParam->load();
+    float filterCutoff = filterCutoffParam->load();
+    float filterRes = filterResParam->load();
+    int filterTypeIndex = static_cast<int>(filterTypeParam->load());
+
+    // On/Off Switch-Werte abrufen
+    bool driveEnabled = driveEnabledParam->load() > 0.5f;
+    bool punchEnabled = punchEnabledParam->load() > 0.5f;
+    bool lengthEnabled = lengthEnabledParam->load() > 0.5f;
+    bool baseFreqEnabled = baseFreqEnabledParam->load() > 0.5f;
+    bool clickEnabled = clickEnabledParam->load() > 0.5f;
+    bool clickDecayEnabled = clickDecayEnabledParam->load() > 0.5f;
+    bool swirlEnabled = swirlEnabledParam->load() > 0.5f;
+    bool spreadEnabled = spreadEnabledParam->load() > 0.5f;
+    bool foldEnabled = foldEnabledParam->load() > 0.5f;
+    bool subEnabled = subEnabledParam->load() > 0.5f;
+    bool noiseEnabled = noiseEnabledParam->load() > 0.5f;
+    bool filterEnabled = filterEnabledParam->load() > 0.5f;
+
+    // Punch (0.0 bis 1.0) auf Decay-Wert mappen:
+    float pDecay = punchEnabled ? (0.90f + (punchValue * 0.0999f)) : 1.0f;
+
+    // Length (0.0 bis 1.0) auf Decay-Wert mappen:
+    float aDecay = lengthEnabled ? (0.990f + (lengthValue * 0.00999f)) : 1.0f;
+
+    // Binaural Swirl berechnen (Frequenzverschiebung Links/Rechts)
+    float swirlAmount = swirlEnabled ? (swirl * 10.0f) : 0.0f; // 0 bis 10 Hz Verschiebung
+
+    // Audio generieren
+    for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+    {
+        float leftSample = 0.0f;
+        float rightSample = 0.0f;
+
+        if (isPlaying)
+        {
+            sampleCount += 1.0f;
+
+            // === PITCH ENVELOPE ===
+            envPitchPos *= pDecay;
+
+            // === CLICK AM ATTACK ===
+            // Kurzzeitiger Spike am Anfang für mehr Transient
+            float clickAttack = 0.0f;
+            if (clickEnabled && sampleCount < 500.0f)
+            {
+                float clickEnv = 1.0f - (sampleCount / 500.0f);
+                clickAttack = click * clickEnv * 0.8f;
+            }
+
+            // === CLICK AM DECAY-ENDE ===
+            // Click wenn Amp Envelope sehr klein ist
+            float clickDecayValue = 0.0f;
+            if (clickDecayEnabled)
+            {
+                float decayClickPoint = 0.01f + (clickDecay * 0.05f);
+                if (envAmpPos < decayClickPoint && envAmpPos > 0.001f)
+                {
+                    clickDecayValue = clickDecay * envAmpPos * 5.0f;
+                    clickDecayValue *= ((int(sampleCount) % 2 == 0) ? 1.0f : -0.5f);
+                }
+            }
+
+            // === HAUZTKICK OZILLATOR ===
+            float currentBaseFreq = baseFreqEnabled ? baseFreq : 50.0f; // Standardwert wenn deaktiviert
+            [[maybe_unused]] float rightFreq = currentBaseFreq + (3000.0f * envPitchPos) - swirlAmount;
+            float leftFreq = currentBaseFreq + (3000.0f * envPitchPos) + swirlAmount;
+            (void)rightFreq;
+
+            phase += static_cast<float>(leftFreq / currentSampleRate);
+            if (phase >= 1.0f) phase -= 1.0f;
+
+            float mainKick = std::sin(phase * juce::MathConstants<float>::twoPi);
+
+            // === SUB-LAYER ===
+            float subFreq = baseFreq * 0.5f;
+            subPhase += static_cast<float>(subFreq / currentSampleRate);
+            if (subPhase >= 1.0f) subPhase -= 1.0f;
+            float subLayer = std::sin(subPhase * juce::MathConstants<float>::twoPi);
+
+            // Mix Main Kick + Sub
+            float currentSub = subEnabled ? sub : 0.0f;
+            mainKick = mainKick * (1.0f - currentSub * 0.5f) + subLayer * currentSub;
+
+            // === NOISE-LAYER ===
+            float noiseValue = 0.0f;
+            if (noiseEnabled && sampleCount < 1000.0f)
+            {
+                noisePhase = (noisePhase + 1.0f);
+                noiseValue = ((float)((rand() % 2000) - 1000) / 1000.0f);
+                float noiseEnv = 1.0f - (sampleCount / 1000.0f);
+                noiseValue = noiseValue * noise * noiseEnv * 0.3f;
+            }
+
+            // === AMP ENVELOPE ===
+            envAmpPos *= aDecay;
+
+            // Signal zusammenbauen
+            float combined = mainKick * envAmpPos + clickAttack + clickDecayValue + noiseValue;
+
+            // === DISTORTION STAGE ===
+            // 1. Wavefolding
+            if (foldEnabled && fold > 0.0f)
+            {
+                float foldInput = combined * fold;
+                combined = std::sin(foldInput * juce::MathConstants<float>::twoPi) / fold;
+            }
+
+            // 2. Drive Gain
+            if (driveEnabled)
+                combined *= drive;
+            else
+                combined *= 1.0f; // Kein Drive wenn deaktiviert
+
+            // 3. Hard Clipping
+            if (combined > 1.0f) combined = 1.0f;
+            else if (combined < -1.0f) combined = -1.0f;
+
+            // === STEREO SPREAD ===
+            float currentSpread = spreadEnabled ? spread : 0.0f;
+            leftSample = combined * (1.0f - currentSpread * 0.3f);
+            rightSample = combined * (1.0f + currentSpread * 0.3f);
+
+            // === BINAURAL SWIRL ===
+            // Frequenzverschiebung Links/Rechts für psychoakustische Tiefe
+            float leftSwirl = std::sin((phase + spread * 0.1f) * juce::MathConstants<float>::twoPi);
+            float rightSwirl = std::sin((phase - spread * 0.1f) * juce::MathConstants<float>::twoPi);
+            float currentSwirl = swirlEnabled ? swirl : 0.0f;
+            leftSample = leftSample * 0.7f + leftSwirl * 0.3f * currentSwirl;
+            rightSample = rightSample * 0.7f + rightSwirl * 0.3f * currentSwirl;
+
+            // Stoppe Berechnung, wenn Sound praktisch unhörbar ist
+            if (envAmpPos < 0.0001f) isPlaying = false;
+
+            // Output in den Puffer schreiben
+            auto* leftChannel = buffer.getWritePointer(0);
+            auto* rightChannel = buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) : nullptr;
+            leftChannel[sample] = leftSample;
+            if (rightChannel != nullptr) rightChannel[sample] = rightSample;
+        }
+
+        // === FILTER SECTION ===
+        // State Variable Filter für Links und Rechts
+        if (filterEnabled && (filterRes > 0.0f || filterCutoff < 20000.0f))
+        {
+            // Filter Parameter berechnen
+            float w = juce::MathConstants<float>::twoPi * (filterCutoff / currentSampleRate);
+            float r = 1.0f / (2.0f * (1.0f + filterRes));
+            float g = std::cos(w) * r;
+            float h = (filterRes + 0.5f) * r * std::sin(w);
+
+            // Filter berechnen (State Variable Filter)
+            float hpL = 0.0f, bpL = 0.0f, lpL = 0.0f;
+            float hpR = 0.0f, bpR = 0.0f, lpR = 0.0f;
+
+            // Lowpass berechnen
+            lpL = z1L + g * leftSample;
+            z1L = leftSample + h * lpL - z1L;
+
+            lpR = z1R + g * rightSample;
+            z1R = rightSample + h * lpR - z1R;
+
+            // Highpass
+            hpL = leftSample - lpL;
+            hpR = rightSample - lpR;
+
+            // Bandpass
+            bpL = leftSample - hpL - lpL;
+            bpR = rightSample - hpR - lpR;
+
+            // Filter Type anwenden
+            switch (filterTypeIndex)
+            {
+                case 0: // Lowpass
+                    leftSample = lpL;
+                    rightSample = lpR;
+                    break;
+                case 1: // Highpass
+                    leftSample = hpL;
+                    rightSample = hpR;
+                    break;
+                case 2: // Bandpass
+                    leftSample = bpL;
+                    rightSample = bpR;
+                    break;
+            }
+        }
+    }
+}
+
+void TekkKickAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
+{
+    auto state = apvts.copyState();
+    std::unique_ptr<juce::XmlElement> xml (state.createXml());
+    copyXmlToBinary (*xml, destData);
+}
+
+void TekkKickAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
+{
+    std::unique_ptr<juce::XmlElement> xmlState (getXmlFromBinary (data, sizeInBytes));
+    if (xmlState.get() != nullptr)
+        if (xmlState->hasTagName (apvts.state.getType()))
+            apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
+}
+
+juce::AudioProcessorEditor* TekkKickAudioProcessor::createEditor()
+{
+    return new TekkKickAudioProcessorEditor (*this);
+}
+
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
+{
+    return new TekkKickAudioProcessor();
+}
