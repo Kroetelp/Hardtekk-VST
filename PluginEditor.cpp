@@ -7,8 +7,8 @@
 TekkKickAudioProcessorEditor::TekkKickAudioProcessorEditor (TekkKickAudioProcessor& p)
     : AudioProcessorEditor (&p), audioProcessor (p)
 {
-    // Plugin Fenstergröße setzen (breiter für Toggle-Buttons neben Sliders)
-    setSize (600, 750);
+    // Plugin Fenstergröße setzen (breiter für Toggle-Buttons neben Sliders + Export-Button unten)
+    setSize (600, 760);
 
     // Style der Slider definieren (Lineare Slider)
     auto setupSlider = [this](juce::Slider& slider) {
@@ -67,6 +67,31 @@ TekkKickAudioProcessorEditor::TekkKickAudioProcessorEditor (TekkKickAudioProcess
     setupToggle(subToggle);
     setupToggle(noiseToggle);
     setupToggle(filterToggle);
+
+    // Export Button Setup
+    exportButton.setButtonText("EXPORT KICK AS WAV");
+    exportButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+    addAndMakeVisible(exportButton);
+
+    // Was passieren soll, wenn der Button geklickt wird:
+    exportButton.onClick = [this]() {
+        // Öffnet das native Windows/Mac "Speichern unter..." Fenster
+        fileChooser = std::make_unique<juce::FileChooser>(
+            "Kick als WAV speichern...",
+            juce::File::getSpecialLocation(juce::File::userDesktopDirectory).getChildFile("TekkKick_01.wav"),
+            "*.wav"
+        );
+
+        auto folderFlags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles;
+
+        fileChooser->launchAsync(folderFlags, [this](const juce::FileChooser& fc) {
+            juce::File result = fc.getResult();
+            if (result != juce::File{}) {
+                // Hier rufen wir unsere neue Funktion aus dem Processor auf!
+                audioProcessor.exportKickToWav(result);
+            }
+        });
+    };
 
     // Slider an die Parameter binden (APVTS)
     // Haupt
@@ -205,4 +230,7 @@ void TekkKickAudioProcessorEditor::resized()
     filterCutoffSlider.setBounds(xStart, 615, width, height);
     filterResSlider.setBounds(xStart, 640, width, height);
     filterTypeComboBox.setBounds(xStart, 665, width, height);
+
+    // Export Button unten rechts platzieren
+    exportButton.setBounds(400, 700, 180, 40);
 }

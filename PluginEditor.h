@@ -49,6 +49,10 @@ private:
     juce::ToggleButton noiseToggle;
     juce::ToggleButton filterToggle;
 
+    // === EXPORT BUTTON ===
+    juce::TextButton exportButton;
+    std::unique_ptr<juce::FileChooser> fileChooser; // Wichtig für das Datei-Speichern-Fenster
+
     // Verbindungen zwischen Slider und der Audio-Engine
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;

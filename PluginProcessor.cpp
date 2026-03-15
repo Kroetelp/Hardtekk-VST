@@ -406,6 +406,82 @@ void TekkKickAudioProcessor::setStateInformation (const void* data, int sizeInBy
             apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
 }
 
+// ==============================================================================
+// WAV EXPORT FUNKTION
+// ==============================================================================
+#include <juce_audio_formats/juce_audio_formats.h> // Wichtig für WAV Export
+
+void TekkKickAudioProcessor::exportKickToWav(const juce::File& outputFile)
+{
+    // Pausiere die Audio-Ausgabe der DAW für einen Bruchteil einer Sekunde,
+    // damit sich Offline-Render und Echtzeit-Wiedergabe nicht in die Quere kommen.
+    suspendProcessing(true);
+
+    double exportSampleRate = 44100.0;
+    double durationSeconds = 2.0; // 2 Sekunden reichen locker für eine Kick
+    int numSamples = static_cast<int>(exportSampleRate * durationSeconds);
+    int numChannels = 2; // Stereo
+
+    // Buffer für den fertigen Sound
+    juce::AudioBuffer<float> exportBuffer(numChannels, numSamples);
+    exportBuffer.clear();
+
+    // Setup für Offline Rendering
+    double oldSampleRate = currentSampleRate;
+    prepareToPlay(exportSampleRate, 512);
+
+    // Simuliere einen MIDI "Note On" Befehl, um die Envelopes zu starten
+    isPlaying = true;
+    phase = 0.0f;
+    subPhase = 0.0f;
+    envAmpPos = 1.0f;
+    envPitchPos = 1.0f;
+    sampleCount = 0.0f;
+    noisePhase = 0.0f;
+
+    // Render den Sound in kleinen Blöcken (wie es die DAW auch tun würde)
+    int exportBlockSize = 512;
+    juce::AudioBuffer<float> tempBuffer(numChannels, exportBlockSize);
+    juce::MidiBuffer dummyMidi;
+
+    for (int startSample = 0; startSample < numSamples; startSample += exportBlockSize)
+    {
+        int numSamplesToProcess = juce::jmin(exportBlockSize, numSamples - startSample);
+        tempBuffer.setSize(numChannels, numSamplesToProcess, false, false, true);
+        tempBuffer.clear();
+
+        // Audio-Engine den Block berechnen lassen
+        processBlock(tempBuffer, dummyMidi);
+
+        // Den berechneten Block in den großen Export-Buffer kopieren
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            exportBuffer.copyFrom(ch, startSample, tempBuffer, ch, 0, numSamplesToProcess);
+        }
+    }
+
+    // Altes Setup der DAW wiederherstellen
+    prepareToPlay(oldSampleRate, 512);
+    suspendProcessing(false);
+
+    // === IN DATEI SCHREIBEN ===
+    juce::WavAudioFormat wavFormat;
+    std::unique_ptr<juce::FileOutputStream> outStream(outputFile.createOutputStream());
+
+    if (outStream != nullptr)
+    {
+        // Verwende die vorhandene API (deprecated in JUCE 8 aber noch funktional)
+        std::unique_ptr<juce::AudioFormatWriter> writer(
+            wavFormat.createWriterFor(outStream.get(), exportSampleRate, numChannels, 24, {}, 0));
+
+        if (writer != nullptr)
+        {
+            outStream.release(); // Writer übernimmt die Kontrolle über den Stream
+            writer->writeFromAudioSampleBuffer(exportBuffer, 0, numSamples);
+        }
+    }
+}
+
 juce::AudioProcessorEditor* TekkKickAudioProcessor::createEditor()
 {
     return new TekkKickAudioProcessorEditor (*this);
